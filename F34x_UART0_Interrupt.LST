@@ -1,0 +1,623 @@
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 1   
+
+
+C51 COMPILER V9.51, COMPILATION OF MODULE F34X_UART0_INTERRUPT
+OBJECT MODULE PLACED IN F34x_UART0_Interrupt.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe F34x_UART0_Interrupt.c DB OE BR INCDIR(C:\SiLabs\MCU\Inc)
+
+line level    source
+
+   1          #include <c8051f340.h>                 // SFR declarations
+   2          #include <stdio.h>
+   3          #include <communication.h>
+   4          //-----------------------------------------------------------------------------
+   5          // Global CONSTANTS
+   6          //-----------------------------------------------------------------------------
+   7          
+   8          #define SYSCLK      12000000           // SYSCLK frequency in Hz
+   9          #define BAUDRATE      230400           // Baud rate of UART in bps
+  10          
+  11          
+  12          //-----------------------------------------------------------------------------
+  13          // Function PROTOTYPES
+  14          //-----------------------------------------------------------------------------
+  15          
+  16          void SYSCLK_Init (void);
+  17          void UART0_Init (void);
+  18          void PORT_Init (void);
+  19          void UART1_Init (void);
+  20          //====test
+  21          void Putchar(unsigned char cData);
+  22          void UART1Putchar(unsigned char cData);
+  23          void AccessStatin(EStationCommand Command);
+  24          void Delay(float time);
+  25          void RxPackInfo();
+  26          void Command_ACK();
+  27          void Command_NAK();
+  28          void StationANA();
+  29          void RunStationCommand();
+  30          void Timer2_Init();
+  31          void StationCmd();
+  32          //-----------------------------------------------------------------------------
+  33          // Global Variables
+  34          //-----------------------------------------------------------------------------
+  35          
+  36          #define UART_BUFFERSIZE 10
+  37          unsigned char UART_Buffer[UART_BUFFERSIZE];
+  38          unsigned char UART_Buffer_Size = 0;
+  39          unsigned char UART_Input_First = 0;
+  40          unsigned char UART_Output_First = 0;
+  41          unsigned char TX_Ready =1;
+  42          
+  43          static char Byte;
+  44          unsigned char STX = 2;
+  45          unsigned char ETX = 3;
+  46          unsigned char BCC = 0;
+  47          unsigned char _ACK = 13;
+  48          unsigned char _NAK = 15;
+  49          bit Reved;
+  50          
+  51          xdata TPacker Packer ;
+  52          unsigned char RxTimeOutCount=0; 
+  53          byte *Pointer_Packer = &Packer.UART_Mark ; 
+  54          byte *Station_Pointer = &Packer.UART_Mark ; 
+  55          bit     IsRxTimeOut =0; 
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 2   
+
+  56          bit IsRxCommand=0;
+  57          byte Command;
+  58          bit IsRxReady = 0;
+  59          //-----------------------------------------------------------------------------
+  60          // MAIN Routine
+  61          //-----------------------------------------------------------------------------
+  62          void Putchar(unsigned char cData)
+  63          {
+  64   1              unsigned int i=10000;
+  65   1              while( TX_Ready == 0) ;
+  66   1              TX_Ready = 0;
+  67   1              TI0 = 0;
+  68   1              SBUF0 = cData;
+  69   1              while(i--);     
+  70   1      }
+  71          //-----------------------------------------------------------------------------
+  72          void Timer2_ISR (void) interrupt INTERRUPT_TIMER2 
+  73          {
+  74   1              TF2H=0;
+  75   1              if (RxTimeOutCount ++ >=3)
+  76   1              {
+  77   2                      TR2 =0;
+  78   2                      TMR2H = 0x00;
+  79   2                      TMR2L = 0x00;
+  80   2                      RxTimeOutCount=0;
+  81   2                      Station_Pointer = &Packer.Station.State;
+  82   2                      IsRxTimeOut =1;
+  83   2              }
+  84   1      }
+  85          //-----------------------------------------------------------------------------
+  86          void Timer2_Init()
+  87          {
+  88   1              TMR2CN = 0x00;
+  89   1              TMR2L  = 0x00;
+  90   1              TMR2H  = 0x00;
+  91   1          ET2 = 1;
+  92   1      }
+  93          //-----------------------------------------------------------------------------
+  94          
+  95          void UART1Putchar(unsigned char xData)
+  96          {
+  97   1              unsigned int i=10000;
+  98   1              while( (SCON1 & 0x20) ==0) ;
+  99   1              SBUF1 = xData;
+ 100   1      /*
+ 101   1              if(cData == Packer.ErrorCode){
+ 102   1                      EIE2 |= 0x02;
+ 103   1                      SCON1&=0x3F;
+ 104   1              }*/
+ 105   1              while(i--);     
+ 106   1      }
+ 107          
+ 108          //----------------------------------------------------------------------------------
+ 109          void StationANA()
+ 110          {
+ 111   1              char    i;
+ 112   1              int             CASNUMTemp;     
+ 113   1              for(i=0;i<5;i++)
+ 114   1              {
+ 115   2                      Packer.StationInfo[i] = StationState_Finish;
+ 116   2              }
+ 117   1              for(i = 0;i<Packer.Station.CasseteQTY;i++)
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 3   
+
+ 118   1              {
+ 119   2                      CASNUMTemp = (Packer.CasseteInfo[i].HNumber & 0x0F) * 100 +
+ 120   2                                               (Packer.CasseteInfo[i].TNumber & 0x0F) *  10 +
+ 121   2                                               (Packer.CasseteInfo[i].SNumber & 0x0F);
+ 122   2                      Packer.StationInfo[CASNUMTemp/20] = StationState_Busy;          
+ 123   2              }
+ 124   1      
+ 125   1      }
+ 126          unsigned char StaBCC = 0x00;
+ 127          void AccessStatin(char i)
+ 128          {                                                        
+ 129   1              UART1Putchar(UART_Mark) ;
+ 130   1              
+ 131   1              if(Command == BoardCommand_Start)
+ 132   1              {
+ 133   2                      UART1Putchar(EStationCommand_PackStart);
+ 134   2                      StaBCC = EStationCommand_PackStart;
+ 135   2              }
+ 136   1              else if(Command == BoardCommand_ReStart)
+ 137   1              {
+ 138   2                      UART1Putchar(EStationCommand_RePack);
+ 139   2                      StaBCC = EStationCommand_RePack;
+ 140   2              }
+ 141   1              else if(Command == BoardCommand_LEDON)
+ 142   1              {
+ 143   2                      UART1Putchar(EStationCommand_LEDON);
+ 144   2                      StaBCC = EStationCommand_LEDON;
+ 145   2              }
+ 146   1              else if(Command == BoardCommand_LEDOFF)
+ 147   1              {
+ 148   2                      UART1Putchar(EStationCommand_LEDOFF);
+ 149   2                      StaBCC = EStationCommand_LEDOFF;
+ 150   2              }
+ 151   1      //      UART1Putchar(Packer.Station.CasseteQTY);
+ 152   1      
+ 153   1              for(i = 0;i<Packer.Station.CasseteQTY;i++)
+ 154   1              {
+ 155   2                      UART1Putchar(Packer.CasseteInfo[i].HNumber);
+ 156   2                      StaBCC ^= Packer.CasseteInfo[i].HNumber;
+ 157   2                      UART1Putchar(Packer.CasseteInfo[i].TNumber);
+ 158   2                      StaBCC ^= Packer.CasseteInfo[i].TNumber;
+ 159   2                      UART1Putchar(Packer.CasseteInfo[i].SNumber);
+ 160   2                      StaBCC ^= Packer.CasseteInfo[i].SNumber;
+ 161   2                      UART1Putchar(Packer.CasseteInfo[i].QTYTNum);
+ 162   2                      StaBCC ^= Packer.CasseteInfo[i].QTYTNum;
+ 163   2                      UART1Putchar(Packer.CasseteInfo[i].QTYSNum);
+ 164   2                      StaBCC ^= Packer.CasseteInfo[i].QTYSNum;
+ 165   2              }       
+ 166   1              UART1Putchar(ETX);
+ 167   1              StaBCC^= ETX;
+ 168   1              UART1Putchar(StaBCC);
+ 169   1              IsRxCommand =0;
+ 170   1              /*
+ 171   1              while(!IsRxCommand) 
+ 172   1              {
+ 173   1                      if (i++ >= 12000)       
+ 174   1                      {
+ 175   1                              i=0;
+ 176   1                              Pointer_Packer = &Packer.UART_Mark;
+ 177   1                              Packer.UART_Mark = UART_NoMark ;
+ 178   1                              //Cpu1CommandIdel();
+ 179   1                              return;
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 4   
+
+ 180   1                      }
+ 181   1              }*/
+ 182   1              Pointer_Packer = &Packer.UART_Mark ;
+ 183   1              
+ 184   1      }
+ 185          
+ 186          void Command_ACK()
+ 187          {
+ 188   1              Putchar(STX);
+ 189   1              Putchar(_ACK);
+ 190   1              Putchar('0');
+ 191   1              Putchar('0');
+ 192   1              Putchar('1');
+ 193   1              Putchar(ETX);   
+ 194   1      }
+ 195          void Command_NAK()
+ 196          {
+ 197   1              Putchar(STX);
+ 198   1              Putchar(_NAK);
+ 199   1              Putchar(ETX);
+ 200   1      }
+ 201          
+ 202          void Command_ASK()
+ 203          {
+ 204   1              Putchar(STX);
+ 205   1              Putchar('0');
+ 206   1              Putchar('1');
+ 207   1              Putchar('Q');
+ 208   1              Putchar(ETX);
+ 209   1      }
+ 210          //-----------------------------------------------------------------------------
+ 211          void OSCILLATOR_Init (void)
+ 212          {
+ 213   1         OSCICN = 0x83;                      // Set internal oscillator to run
+ 214   1                                             // at its maximum frequency
+ 215   1      
+ 216   1         CLKSEL = 0x00;                      // Select the internal osc. as
+ 217   1                                             // the SYSCLK source
+ 218   1         OSCICL = 0x10;
+ 219   1         CLKSEL |= 0x03;
+ 220   1         RSTSRC   |= 0x02;
+ 221   1      }
+ 222          void main (void)
+ 223          {
+ 224   1         unsigned char i,Finish = 0,j=0;
+ 225   1         PCA0MD &= ~0x40;                    // WDTE = 0 (clear watchdog timer
+ 226   1                                             // enable)
+ 227   1         PORT_Init();                        // Initialize Port I/O
+ 228   1         SYSCLK_Init ();                     // Initialize Oscillator
+ 229   1         UART0_Init();
+ 230   1         UART1_Init();
+ 231   1         Timer2_Init();
+ 232   1         EA = 1;
+ 233   1         for(i =0; i<80;i++)
+ 234   1                      Packer.RecevieData[i] = 0x30;
+ 235   1         Command = BoardCommand_Busy;
+ 236   1         while(1)
+ 237   1         {    
+ 238   2       //             RunStationCommand();
+ 239   2                      Delay(1000);
+ 240   2                      if(Command == BoardCommand_Start || Command == BoardCommand_ReStart)
+ 241   2                      {
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 5   
+
+ 242   3                              StationANA();
+ 243   3                              AccessStatin(0);
+ 244   3                              Command = BoardCommand_Busy;
+ 245   3                              Finish = 0;
+ 246   3                              Packer.Board.State = State_Packing;
+ 247   3                              Delay(5000);
+ 248   3                              while(Packer.Board.State != State_Finish)
+ 249   3                              {                       
+ 250   4                                      for( i =0;i<Packer.Station.CasseteQTY;i++)
+ 251   4                                      {
+ 252   5                                              UART1Putchar(UART_Mark) ;
+ 253   5                                              UART1Putchar(EStationCommand_Return);
+ 254   5                                              StaBCC = EStationCommand_Return;
+ 255   5                                              UART1Putchar(Packer.CasseteInfo[i].HNumber);
+ 256   5                                              StaBCC ^= Packer.CasseteInfo[i].HNumber;
+ 257   5                                              UART1Putchar(Packer.CasseteInfo[i].TNumber);
+ 258   5                                              StaBCC ^= Packer.CasseteInfo[i].TNumber;
+ 259   5                                              UART1Putchar(Packer.CasseteInfo[i].SNumber);
+ 260   5                                              StaBCC ^= Packer.CasseteInfo[i].SNumber;
+ 261   5                                              UART1Putchar(ETX);
+ 262   5                                              StaBCC ^= ETX;
+ 263   5                                              UART1Putchar(StaBCC);
+ 264   5                                              Delay(3000);
+ 265   5                                              Packer.CasseteInfo[i].State = Packer.Station.State;
+ 266   5                                      }
+ 267   4                                      StationCmd();
+ 268   4                                      if(Packer.Board.State == State_Error)
+ 269   4                                              break;
+ 270   4      //                              Delay(100);
+ 271   4                              }
+ 272   3                              if(Command != BoardCommand_ACK && Packer.Board.State == State_Finish)
+ 273   3                              {
+ 274   4                                      RunStationCommand();
+ 275   4                                      Delay(200);
+ 276   4                              }
+ 277   3                              if(Packer.Board.State == State_Error)
+ 278   3                              {
+ 279   4                                      while(Command != BoardCommand_ACK)
+ 280   4                                      {
+ 281   5                                              Putchar(STX);
+ 282   5                                              Putchar('E');
+ 283   5                                              for(j=0;j<Packer.Station.CasseteQTY;j++)
+ 284   5                                              {
+ 285   6                                                      if(Packer.CasseteInfo[j].State == TabletState_Fail)
+ 286   6                                                      {
+ 287   7                                                              Putchar(Packer.CasseteInfo[j].HNumber);
+ 288   7                                                              Putchar(Packer.CasseteInfo[j].TNumber);
+ 289   7                                                              Putchar(Packer.CasseteInfo[j].SNumber);
+ 290   7                                                      }
+ 291   6                                              }
+ 292   5                                              Putchar(ETX);
+ 293   5                                      }
+ 294   4                              }
+ 295   3                      }       
+ 296   2                      else if(Command == BoardCommand_LEDON)
+ 297   2                      {
+ 298   3                              StationANA();
+ 299   3                              AccessStatin(0);
+ 300   3                              Delay(5000);
+ 301   3                              Packer.Board.State = State_Finish;
+ 302   3                              Command = BoardCommand_Idel;
+ 303   3                      } 
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 6   
+
+ 304   2                      else if(Command == BoardCommand_LEDOFF)
+ 305   2                      {
+ 306   3                              StationANA();
+ 307   3                              AccessStatin(0);
+ 308   3                              Delay(5000);
+ 309   3                              Packer.Board.State = State_Finish;
+ 310   3                              Command = BoardCommand_Idel;
+ 311   3                      }
+ 312   2        }
+ 313   1      }
+ 314          
+ 315          //-----------------------------------------------------------------------------
+ 316          
+ 317          void PORT_Init (void)
+ 318          {
+ 319   1              P0MDOUT  |= 0x10;
+ 320   1              P1MDOUT   = 0x00;
+ 321   1              P1MDIN    = 0xFF;
+ 322   1      //      P0SKIP    = 0xCF;
+ 323   1      //  P1SKIP    = 0x03;
+ 324   1          XBR0      = 0x01;
+ 325   1          XBR1      = 0x40;
+ 326   1          XBR2      = 0x01;
+ 327   1      }
+ 328          
+ 329          //-----------------------------------------------------------------------------
+ 330          // SYSCLK_Init
+ 331          //-----------------------------------------------------------------------------
+ 332          //
+ 333          // Return Value : None
+ 334          // Parameters   : None
+ 335          //
+ 336          // This routine initializes the system clock to use the internal oscillator
+ 337          // at its maximum frequency.
+ 338          // Also enables the Missing Clock Detector.
+ 339          //-----------------------------------------------------------------------------
+ 340          
+ 341          void SYSCLK_Init (void)
+ 342          {
+ 343   1         OSCICN |= 0x03;                     // Configure internal oscillator for
+ 344   1                                             // its maximum frequency
+ 345   1         RSTSRC  = 0x04;                     // Enable missing clock detector
+ 346   1      }
+ 347          void UART1_Init (void){
+ 348   1      //      SBRLL1    = 0x3C;
+ 349   1      //    SBRLH1    = 0xF6;
+ 350   1              SBRLL1    = 0x8F;
+ 351   1          SBRLH1    = 0xFD;
+ 352   1          SCON1     = 0x10;           
+ 353   1          SMOD1     = 0x0c;
+ 354   1          SBCON1    = 0x43;  
+ 355   1              EIE2 |= 0x02;//開啟UART1中斷
+ 356   1      //      EIP2 = 0x02;//提高UART1中斷優先權
+ 357   1      }
+ 358          
+ 359          void UART0_Init (void)
+ 360          {
+ 361   1         SCON0 = 0x10;                       // SCON0: 8-bit variable bit rate
+ 362   1                                             //        level of STOP bit is ignored
+ 363   1                                             //        RX enabled
+ 364   1                                             //        ninth bits are zeros
+ 365   1                                             //        clear RI0 and TI0 bits
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 7   
+
+ 366   1         if (SYSCLK/BAUDRATE/2/256 < 1) {
+ 367   2            TH1 = -(SYSCLK/BAUDRATE/2);
+ 368   2            CKCON &= ~0x0B;                  // T1M = 1; SCA1:0 = xx
+ 369   2            CKCON |=  0x08;
+ 370   2         } else if (SYSCLK/BAUDRATE/2/256 < 4) {
+ 371   2            TH1 = -(SYSCLK/BAUDRATE/2/4);
+ 372   2            CKCON &= ~0x0B;                  // T1M = 0; SCA1:0 = 01
+ 373   2            CKCON |=  0x01;
+ 374   2         } else if (SYSCLK/BAUDRATE/2/256 < 12) {
+ 375   2            TH1 = -(SYSCLK/BAUDRATE/2/12);
+ 376   2            CKCON &= ~0x0B;                  // T1M = 0; SCA1:0 = 00
+ 377   2         } else {
+ 378   2            TH1 = -(SYSCLK/BAUDRATE/2/48);
+ 379   2            CKCON &= ~0x0B;                  // T1M = 0; SCA1:0 = 10
+ 380   2            CKCON |=  0x02;
+ 381   2         }
+ 382   1      
+ 383   1         TL1 = TH1;                          // init Timer1
+ 384   1         TMOD &= ~0xf0;                      // TMOD: timer 1 in 8-bit autoreload
+ 385   1         TMOD |=  0x20;
+ 386   1         TR1 = 1;                            // START Timer1
+ 387   1         TX_Ready = 1;                       // Flag showing that UART can transmit
+ 388   1         IP |= 0x10;                         // Make UART high priority
+ 389   1         ES0 = 1;                            // Enable UART0 interrupts
+ 390   1      
+ 391   1      }
+ 392          
+ 393          
+ 394          //-----------------------------------------------------------------------------
+ 395          void RunStationCommand()
+ 396          {
+ 397   1              Putchar(STX);
+ 398   1              Putchar('Z');
+ 399   1              Putchar('0');
+ 400   1              Putchar('0');
+ 401   1              Putchar('1');
+ 402   1              Putchar(ETX);
+ 403   1      }
+ 404          
+ 405          bit DataRv = 0;
+ 406          unsigned char temp = 0;
+ 407          void UART1_ISR(void)   interrupt 16 
+ 408          {
+ 409   1              EIE2 &= ~0x02;
+ 410   1              if (SCON1 & 0x02)               // TI1
+ 411   1              {
+ 412   2                      SCON1 &= (~0x02);
+ 413   2              }
+ 414   1      
+ 415   1              if (SCON1 & 0x01 )              // RI1
+ 416   1              {
+ 417   2                      SCON1 &= (~0x01);
+ 418   2                      
+ 419   2                      *(Station_Pointer) = SBUF1;
+ 420   2                      
+ 421   2                      if(Station_Pointer == &Packer.UART_Mark)
+ 422   2                      {
+ 423   3                              if (Packer.UART_Mark == UART_Mark)
+ 424   3                              {
+ 425   4                                      Packer.UART_Mark = UART_NoMark ;
+ 426   4                                      Station_Pointer = &Packer.Station.State;
+ 427   4                              }
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 8   
+
+ 428   3                              else
+ 429   3                              {       
+ 430   4                                      Station_Pointer = &Packer.UART_Mark;
+ 431   4                              }
+ 432   3                      }
+ 433   2                      else if(Station_Pointer == &Packer.Station.State)
+ 434   2                      {       
+ 435   3      //                      StationCmd();
+ 436   3                              temp = Packer.Station.State;
+ 437   3                              Station_Pointer = &Packer.UART_Mark;
+ 438   3                      }       
+ 439   2                      else 
+ 440   2                      {
+ 441   3                              Station_Pointer = &Packer.UART_Mark;
+ 442   3                      }
+ 443   2              }
+ 444   1              EIE2 |= 0x02;
+ 445   1      }
+ 446          void StationCmd()
+ 447          {
+ 448   1              unsigned char seq = 0;
+ 449   1              unsigned char Sucess=0x00,Fail = 0x00;;
+ 450   1              for(seq = 0;seq<Packer.Station.CasseteQTY;seq++)
+ 451   1              {
+ 452   2                      if(Packer.CasseteInfo[seq].State == TabletState_Fail)
+ 453   2                              Fail ++;
+ 454   2                      else if(Packer.CasseteInfo[seq].State == TabletState_Sucess)
+ 455   2                              Sucess ++;
+ 456   2              }
+ 457   1              if((Fail+Sucess) == Packer.Station.CasseteQTY)
+ 458   1              {
+ 459   2                      if(Fail >0)
+ 460   2                              Packer.Board.State = State_Error;
+ 461   2                      else
+ 462   2                              Packer.Board.State = State_Finish;
+ 463   2              }
+ 464   1              else
+ 465   1                      Packer.Board.State = State_Packing;
+ 466   1      }
+ 467          //-----------------------------------------------------------------------------
+ 468          
+ 469          
+ 470          
+ 471          void RunCommand()
+ 472          {
+ 473   1              unsigned char i=0;
+ 474   1              Packer.Station.CasseteQTY = (Packer.RecevieData[1] & 0x0F) * 10 +
+ 475   1                                                                              (Packer.RecevieData[2] & 0x0F); 
+ 476   1              for(i=0;i<Packer.Station.CasseteQTY;i++)
+ 477   1              {
+ 478   2                      Packer.CasseteInfo[i].HNumber = Packer.RecevieData[5*i+4];
+ 479   2                      Packer.CasseteInfo[i].TNumber = Packer.RecevieData[5*i+5];
+ 480   2                      Packer.CasseteInfo[i].SNumber = Packer.RecevieData[5*i+6];
+ 481   2                      Packer.CasseteInfo[i].QTYTNum = Packer.RecevieData[5*i+7];
+ 482   2                      Packer.CasseteInfo[i].QTYSNum = Packer.RecevieData[5*i+8];
+ 483   2                      Packer.CasseteInfo[i].State = TabletState_Busy; 
+ 484   2              }
+ 485   1              if(Packer.RecevieData[0] == BoardCommand_RxCasseteInfo)
+ 486   1              {               
+ 487   2                      Command = BoardCommand_Start;   
+ 488   2              }
+ 489   1              else if(Packer.RecevieData[0] == BoardCommand_ACK)
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 9   
+
+ 490   1              {
+ 491   2                      Command = BoardCommand_ACK;
+ 492   2              }
+ 493   1              else if(Packer.RecevieData[0] == BoardCommand_ReStart)
+ 494   1              {
+ 495   2                      Command = BoardCommand_ReStart;
+ 496   2              }
+ 497   1              else if(Packer.RecevieData[0] == BoardCommand_LEDON)
+ 498   1              {
+ 499   2                      Command = BoardCommand_LEDON;
+ 500   2              }
+ 501   1              else if(Packer.RecevieData[0] == BoardCommand_LEDOFF)
+ 502   1              {
+ 503   2                      Command = BoardCommand_LEDOFF;
+ 504   2              }
+ 505   1      }
+ 506          
+ 507          //-----------------------------------------------------------------------------
+ 508          
+ 509          byte BCCTemp,BCC;
+ 510          //bit TAG = 0;
+ 511          char CIndex = 0;
+ 512          void UART0_Interrupt (void) interrupt 4  //接收PC資料
+ 513          {
+ 514   1         if (TI0 == 1)                   // Check if transmit flag is set
+ 515   1         {
+ 516   2            TI0 = 0;                           // Clear interrupt flag
+ 517   2                TX_Ready = 1;
+ 518   2      
+ 519   2         }
+ 520   1         if (RI0 == 1)
+ 521   1         {
+ 522   2                  RI0 = 0;                           // Clear interrupt flag
+ 523   2                  *(Pointer_Packer) = SBUF0;                      // Read a character from UART
+ 524   2                      BCCTemp ^= SBUF0;
+ 525   2                      if(Pointer_Packer == &Packer.UART_Mark)
+ 526   2                      {
+ 527   3                              if (Packer.UART_Mark == UART_Mark)
+ 528   3                              {
+ 529   4                                      Packer.UART_Mark = UART_NoMark ;
+ 530   4                                      Pointer_Packer = &Packer.RecevieData[CIndex];
+ 531   4                              }
+ 532   3                              else
+ 533   3                              {       
+ 534   4                                      Pointer_Packer = &Packer.UART_Mark;
+ 535   4                              }
+ 536   3                      }
+ 537   2                      else if(Pointer_Packer == &Packer.RecevieData[CIndex])
+ 538   2                      {
+ 539   3                              if(CIndex == 0)
+ 540   3                                      BCCTemp = SBUF0;
+ 541   3                              if(Packer.RecevieData[CIndex] == ETX)
+ 542   3                              {
+ 543   4                                      Pointer_Packer = &Packer.Station.BCC;
+ 544   4                                      BCC = BCCTemp;
+ 545   4                                      
+ 546   4                              }
+ 547   3                              else
+ 548   3                              {
+ 549   4                                      CIndex++;
+ 550   4                                      Pointer_Packer = &Packer.RecevieData[CIndex];
+ 551   4                                      
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 10  
+
+ 552   4                              }
+ 553   3                      }
+ 554   2                      else if(Pointer_Packer == &Packer.Station.BCC)  
+ 555   2                      {
+ 556   3                              Pointer_Packer = &Packer.UART_Mark;
+ 557   3                              
+ 558   3                              if(BCC ==Packer.Station.BCC )
+ 559   3                                      RunCommand();
+ 560   3                              else
+ 561   3                                      Command_NAK();
+ 562   3                              CIndex = 0;
+ 563   3                      }
+ 564   2                      else 
+ 565   2                      {
+ 566   3                              Pointer_Packer = &Packer.UART_Mark;
+ 567   3                      }
+ 568   2         }
+ 569   1      
+ 570   1      
+ 571   1      }
+ 572          
+ 573          void Delay(float time)
+ 574          {
+ 575   1      
+ 576   1              while(time --);
+ 577   1      
+ 578   1      }
+ 579          
+ 580          //-----------------------------------------------------------------------------
+ 581          // End Of File
+ 582          //-----------------------------------------------------------------------------
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2111    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    137    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     32       9
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      5    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
