@@ -269,7 +269,7 @@ void main (void)
 					break;
 //				Delay(100);
 			}
-			if(Command != BoardCommand_ACK && Packer.Board.State == State_Finish)
+			while(Command != BoardCommand_ACK && Packer.Board.State == State_Finish)
 			{
 				RunStationCommand();
 				Delay(200);
@@ -471,19 +471,19 @@ void StationCmd()
 void RunCommand()
 {
 	unsigned char i=0;
-	Packer.Station.CasseteQTY = (Packer.RecevieData[1] & 0x0F) * 10 +
-					 				(Packer.RecevieData[2] & 0x0F);	
-	for(i=0;i<Packer.Station.CasseteQTY;i++)
-	{
-		Packer.CasseteInfo[i].HNumber = Packer.RecevieData[5*i+4];
-		Packer.CasseteInfo[i].TNumber = Packer.RecevieData[5*i+5];
-		Packer.CasseteInfo[i].SNumber = Packer.RecevieData[5*i+6];
-		Packer.CasseteInfo[i].QTYTNum = Packer.RecevieData[5*i+7];
-		Packer.CasseteInfo[i].QTYSNum = Packer.RecevieData[5*i+8];
-		Packer.CasseteInfo[i].State = TabletState_Busy;	
-	}
 	if(Packer.RecevieData[0] == BoardCommand_RxCasseteInfo)
-	{		
+	{
+		Packer.Station.CasseteQTY = (Packer.RecevieData[1] & 0x0F) * 10 +
+						 				(Packer.RecevieData[2] & 0x0F);	
+		for(i=0;i<Packer.Station.CasseteQTY;i++)
+		{
+			Packer.CasseteInfo[i].HNumber = Packer.RecevieData[5*i+4];
+			Packer.CasseteInfo[i].TNumber = Packer.RecevieData[5*i+5];
+			Packer.CasseteInfo[i].SNumber = Packer.RecevieData[5*i+6];
+			Packer.CasseteInfo[i].QTYTNum = Packer.RecevieData[5*i+7];
+			Packer.CasseteInfo[i].QTYSNum = Packer.RecevieData[5*i+8];
+			Packer.CasseteInfo[i].State = TabletState_Busy;	
+		}
 		Command = BoardCommand_Start;	
 	}
 	else if(Packer.RecevieData[0] == BoardCommand_ACK)

@@ -1,4 +1,4 @@
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 1   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 1   
 
 
 C51 COMPILER V9.51, COMPILATION OF MODULE F34X_UART0_INTERRUPT
@@ -62,7 +62,7 @@ line level    source
   53          byte *Pointer_Packer = &Packer.UART_Mark ; 
   54          byte *Station_Pointer = &Packer.UART_Mark ; 
   55          bit     IsRxTimeOut =0; 
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 2   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 2   
 
   56          bit IsRxCommand=0;
   57          byte Command;
@@ -126,7 +126,7 @@ line level    source
  115   2                      Packer.StationInfo[i] = StationState_Finish;
  116   2              }
  117   1              for(i = 0;i<Packer.Station.CasseteQTY;i++)
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 3   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 3   
 
  118   1              {
  119   2                      CASNUMTemp = (Packer.CasseteInfo[i].HNumber & 0x0F) * 100 +
@@ -190,7 +190,7 @@ line level    source
  177   1                              Packer.UART_Mark = UART_NoMark ;
  178   1                              //Cpu1CommandIdel();
  179   1                              return;
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 4   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 4   
 
  180   1                      }
  181   1              }*/
@@ -254,7 +254,7 @@ line level    source
  239   2                      Delay(1000);
  240   2                      if(Command == BoardCommand_Start || Command == BoardCommand_ReStart)
  241   2                      {
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 5   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 5   
 
  242   3                              StationANA();
  243   3                              AccessStatin(0);
@@ -286,7 +286,7 @@ line level    source
  269   4                                              break;
  270   4      //                              Delay(100);
  271   4                              }
- 272   3                              if(Command != BoardCommand_ACK && Packer.Board.State == State_Finish)
+ 272   3                              while(Command != BoardCommand_ACK && Packer.Board.State == State_Finish)
  273   3                              {
  274   4                                      RunStationCommand();
  275   4                                      Delay(200);
@@ -318,7 +318,7 @@ line level    source
  301   3                              Packer.Board.State = State_Finish;
  302   3                              Command = BoardCommand_Idel;
  303   3                      } 
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 6   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 6   
 
  304   2                      else if(Command == BoardCommand_LEDOFF)
  305   2                      {
@@ -382,7 +382,7 @@ line level    source
  363   1                                             //        RX enabled
  364   1                                             //        ninth bits are zeros
  365   1                                             //        clear RI0 and TI0 bits
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 7   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 7   
 
  366   1         if (SYSCLK/BAUDRATE/2/256 < 1) {
  367   2            TH1 = -(SYSCLK/BAUDRATE/2);
@@ -446,7 +446,7 @@ line level    source
  425   4                                      Packer.UART_Mark = UART_NoMark ;
  426   4                                      Station_Pointer = &Packer.Station.State;
  427   4                              }
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 8   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 8   
 
  428   3                              else
  429   3                              {       
@@ -494,23 +494,23 @@ line level    source
  471          void RunCommand()
  472          {
  473   1              unsigned char i=0;
- 474   1              Packer.Station.CasseteQTY = (Packer.RecevieData[1] & 0x0F) * 10 +
- 475   1                                                                              (Packer.RecevieData[2] & 0x0F); 
- 476   1              for(i=0;i<Packer.Station.CasseteQTY;i++)
- 477   1              {
- 478   2                      Packer.CasseteInfo[i].HNumber = Packer.RecevieData[5*i+4];
- 479   2                      Packer.CasseteInfo[i].TNumber = Packer.RecevieData[5*i+5];
- 480   2                      Packer.CasseteInfo[i].SNumber = Packer.RecevieData[5*i+6];
- 481   2                      Packer.CasseteInfo[i].QTYTNum = Packer.RecevieData[5*i+7];
- 482   2                      Packer.CasseteInfo[i].QTYSNum = Packer.RecevieData[5*i+8];
- 483   2                      Packer.CasseteInfo[i].State = TabletState_Busy; 
- 484   2              }
- 485   1              if(Packer.RecevieData[0] == BoardCommand_RxCasseteInfo)
- 486   1              {               
+ 474   1              if(Packer.RecevieData[0] == BoardCommand_RxCasseteInfo)
+ 475   1              {
+ 476   2                      Packer.Station.CasseteQTY = (Packer.RecevieData[1] & 0x0F) * 10 +
+ 477   2                                                                                      (Packer.RecevieData[2] & 0x0F); 
+ 478   2                      for(i=0;i<Packer.Station.CasseteQTY;i++)
+ 479   2                      {
+ 480   3                              Packer.CasseteInfo[i].HNumber = Packer.RecevieData[5*i+4];
+ 481   3                              Packer.CasseteInfo[i].TNumber = Packer.RecevieData[5*i+5];
+ 482   3                              Packer.CasseteInfo[i].SNumber = Packer.RecevieData[5*i+6];
+ 483   3                              Packer.CasseteInfo[i].QTYTNum = Packer.RecevieData[5*i+7];
+ 484   3                              Packer.CasseteInfo[i].QTYSNum = Packer.RecevieData[5*i+8];
+ 485   3                              Packer.CasseteInfo[i].State = TabletState_Busy; 
+ 486   3                      }
  487   2                      Command = BoardCommand_Start;   
  488   2              }
  489   1              else if(Packer.RecevieData[0] == BoardCommand_ACK)
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 9   
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 9   
 
  490   1              {
  491   2                      Command = BoardCommand_ACK;
@@ -574,7 +574,7 @@ line level    source
  549   4                                      CIndex++;
  550   4                                      Pointer_Packer = &Packer.RecevieData[CIndex];
  551   4                                      
-C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/09/2018 14:24:54 PAGE 10  
+C51 COMPILER V9.51   F34X_UART0_INTERRUPT                                                  09/17/2018 23:39:47 PAGE 10  
 
  552   4                              }
  553   3                      }
@@ -610,7 +610,7 @@ line level    source
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =   2111    ----
+   CODE SIZE        =   2119    ----
    CONSTANT SIZE    =   ----    ----
    XDATA SIZE       =    137    ----
    PDATA SIZE       =   ----    ----
